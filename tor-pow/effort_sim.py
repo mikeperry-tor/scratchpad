@@ -14,10 +14,12 @@ HS_UPDATE_PERIOD=300
 MIN_EFFORT=1000
 QUEUE_CAPACITY=CLIENT_TIMEOUT*SVC_BOTTOM_CAPACITY
 
-descriptor_effort=0
+descriptor_effort=MIN_EFFORT
 handled=[]
 backlog=[]
 trimmed_count=0
+max_queue_size=0
+avg_queue_size=0
 trimmed_list=[]
 queue=[]
 
@@ -37,6 +39,90 @@ class Client:
         self.effort = increase_effort(self.effort)
         next_attempt = self.effort / CLIENT_PERF
         self.next_time = self.next_time + CLIENT_TIMEOUT + next_attempt
+
+# TODO: Can we do Vegas-style equilibrium point on queue length targeting?
+
+def recommend_effort_SSAIMD():
+    global descriptor_effort
+    new_effort = 0
+    if len(trimmed_list) > 0:
+        # "Slow Start" phase: Exponential increase difficulty
+        max_trim = max(numpy.amax(trimmed_list), descriptor_effort)
+        new_effort = max_trim*2
+    elif avg_queue_size > 0:
+        # "Addative Increase" phase: Increase effort in proportion to
+        # average queue size in period.
+        # XXX: EWMA instead of pure average?
+        new_effort = numpy.median(list(x.effort for x in handled))
+        new_effort = max(descriptor_effort, new_effort)
+        new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
+    else:
+        # Multiplicative Decrease
+        descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
+        return descriptor_effort
+
+    if descriptor_effort < new_effort:
+        descriptor_effort = new_effort
+
+    # print 'Median handled: ', median_handled
+    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
+        descriptor_effort = MIN_EFFORT
+    return descriptor_effort
+
+def recommend_effort6():
+    global descriptor_effort
+    new_effort = 0
+    if trimmed_list:
+        # XXX: Increase in proportion ot trim list?
+        max_trim = max(numpy.amax(trimmed_list), MIN_EFFORT)
+        new_effort = increase_effort(max_trim)
+    else:
+        descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
+        return descriptor_effort
+
+    if descriptor_effort < new_effort:
+        descriptor_effort = new_effort
+
+    if handled:
+       median_handled = numpy.median(list(x.effort for x in handled))
+
+       if descriptor_effort < median_handled:
+         descriptor_effort = median_handled
+
+    # print 'Median handled: ', median_handled
+    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
+        descriptor_effort = MIN_EFFORT
+    return descriptor_effort
+
+def recommend_effort5():
+    global descriptor_effort
+    new_effort = 0
+    if trimmed_list:
+        new_effort = increase_effort(numpy.amax(trimmed_list))
+    else:
+        descriptor_effort = max(descriptor_effort/2, MIN_EFFORT)
+        return descriptor_effort
+
+    if descriptor_effort < new_effort:
+        descriptor_effort = new_effort
+    else:
+        median_handled = 99999999
+        if handled:
+             median_handled = numpy.median(list(x.effort for x in handled))
+        if descriptor_effort > median_handled:
+            descriptor_effort = median_handled
+        # print 'Median handled: ', median_handled
+    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
+        descriptor_effort = MIN_EFFORT
+    return descriptor_effort
+
+def recommend_effort4():
+    effort = sum(x.effort for x in handled)
+    if effort < MIN_EFFORT:
+        effort = MIN_EFFORT
+    else:
+      effort /= len(handled)
+    return effort
 
 def recommend_effort3():
     effort = sum(trimmed_list)
@@ -154,7 +240,8 @@ for tick in range(9000):
     conn_count = 0
     # update descriptor
     if tick % HS_UPDATE_PERIOD == 0:
-        descriptor_effort=recommend_effort3()
+        avg_queue_size /= HS_UPDATE_PERIOD
+        descriptor_effort=recommend_effort_SSAIMD()
         # print '(t={}) suggested effort: {}'.format(tick, descriptor_effort)
         total = len(handled)
         legitimate = sum(1 for x in handled if not x.attacker)
@@ -163,6 +250,8 @@ for tick in range(9000):
         handled = []
         trimmed_list = []
         trimmed_count = 0
+        max_queue_size = 0
+        avg_queue_size = 0
     # handle attacker
     for i in range(attack_strat.get_count(tick)):
         client = Client(tick, attack_strat.get_effort(tick), True)
@@ -212,9 +301,12 @@ for tick in range(9000):
         if not client.attacker:
             handled_legit_count = handled_legit_count + 1
             conn_time_sum = conn_time_sum + (tick - client.time)
+    avg_queue_size += len(queue)
+    if len(queue) > max_queue_size:
+        max_queue_size = len(queue)
     time_to_conn = '?'
     if handled_legit_count > 0:
         time_to_conn = str(conn_time_sum / handled_legit_count)
     #print 't = {:4d}: desc = {:07.1f}, avg = {:07.1f}, queue: {:4d}, backlog: {:4d}, handled = {:3d}, TTC: {}'.format(\
     #    tick, descriptor_effort, effort_sum / conn_count, queue_size, len(backlog), handled_legit_count, time_to_conn)
-    print tick, descriptor_effort, queue_size, handled_legit_count, time_to_conn
+    print(tick, descriptor_effort, queue_size, handled_legit_count, time_to_conn)
