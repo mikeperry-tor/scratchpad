@@ -17,7 +17,7 @@ QUEUE_CAPACITY=CLIENT_TIMEOUT*SVC_BOTTOM_CAPACITY
 SIM_LENGTH=20000
 ATTACK_START=1000
 ATTACK_END=16000
-ATTACK_CAPACITY=LARGE_BOTNET_MACHINES
+ATTACK_CAPACITY=SMALL_BOTNET_MACHINES
 
 descriptor_effort=MIN_EFFORT
 handled=[]
@@ -55,6 +55,11 @@ class Client:
 # TODO: Can we do Vegas-style equilibrium point on queue length targeting?
 
 def recommend_effort_SSAIMD():
+    # Important points:
+    #   - Uses desc effort, not pow values for multiplirs (in case of pow-break)
+    #   - Sim also yields weird results when using queue effort values directly
+    #   - Requires potentially expensive queue inspections
+    #   - If mainloop top/bottom half prioritization is busted, this will fail
     global descriptor_effort
     new_effort = 0
 
@@ -63,28 +68,30 @@ def recommend_effort_SSAIMD():
     if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= descriptor_effort:
         # "Slow Start" phase: Exponential increase difficulty
         max_trim = numpy.amax(trimmed_list)
-        new_effort = max_trim*2
+        new_effort = 2*descriptor_effort # max(max_trim,2*descriptor_effort)
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort:
-    #   1. Queue is full of non-pow junk: Aka no congestion signal
+    #   1. Non-Congestion: Queue is full of non-pow junk
     #      -> Increase to median of handled pow, no multiplier, no decrease
-    #   3. Queue is has at least some waiting valid pow: Aka congestion signal
+    #   2. Congestion: Queue is has at least some waiting valid pow
     #      -> Increase to median of handled pow multiplied by ratio of queue length
     elif avg_queue_size > 0:
         # "Additive Increase" phase: Increase effort in proportion to
         # average queue size in period.
+        assert len(queue) <= QUEUE_CAPACITY
+        assert avg_queue_size <= QUEUE_CAPACITY
 
         # No congestion: If the queue is currently empty, or full of junk-pow,
         # that is not a congestion signal. Stay the course.
         if len(queue) == 0 or numpy.amax(list(x.effort for x in queue)) < descriptor_effort:
             new_effort = numpy.median(list(x.effort for x in handled))
             # Never let junk lower our effort
-            new_effort = max(new_effort, descriptor_effort)
+            new_effort = descriptor_effort #max(new_effort, descriptor_effort)
         # Congestion: If at least some requests with valid desc-level pow were delayed,
         # increase by the ratio of those that were delayed
         else:
             new_effort = numpy.median(list(x.effort for x in handled))
-            new_effort = max(descriptor_effort, new_effort)
+            new_effort = descriptor_effort #max(descriptor_effort, new_effort)
             valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
             # XXX: EWMA instead of valid_size or pure average?
             #new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
