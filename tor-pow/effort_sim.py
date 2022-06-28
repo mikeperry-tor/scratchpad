@@ -65,33 +65,29 @@ def recommend_effort_SSAIMD():
         new_effort = max_trim*2
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort:
-    #   1. Queue is full of non-pow junk
+    #   1. Queue is full of non-pow junk: Aka no congestion signal
     #      -> Increase to median of handled pow, no multiplier, no decrease
-    #   2. Queue is a mix of valid pow and non-pow junk
-    #      -> Increase to ratio of valid pow length XXX: less sure about this
-    #   3. Queue is full of valid pow
+    #   3. Queue is has at least some waiting valid pow: Aka congestion signal
     #      -> Increase to median of handled pow multiplied by ratio of queue length
     elif avg_queue_size > 0:
         # "Additive Increase" phase: Increase effort in proportion to
         # average queue size in period.
 
-        # Case 1: Queue is empty or full of junk -> just take median of handled
+        # No congestion: If the queue is currently empty, or full of junk-pow,
+        # that is not a congestion signal. Stay the course.
         if len(queue) == 0 or numpy.amax(list(x.effort for x in queue)) < descriptor_effort:
             new_effort = numpy.median(list(x.effort for x in handled))
             # Never let junk lower our effort
             new_effort = max(new_effort, descriptor_effort)
-        # Case 2: Queue has some junk -> ignore junk for ratio
-        elif numpy.amin(list(x.effort for x in queue)) < MIN_EFFORT:
-            new_effort = numpy.median(list(x.effort for x in handled))
-            valid_size = len(filter(x.effort >= descriptor_effort, queue))
-            new_effort = max(descriptor_effort, new_effort)
-            new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
-        # Case 3: Queue has all valid pow above MIN_EFFORT
+        # Congestion: If at least some requests with valid desc-level pow were delayed,
+        # increase by the ratio of those that were delayed
         else:
             new_effort = numpy.median(list(x.effort for x in handled))
             new_effort = max(descriptor_effort, new_effort)
-            # XXX: EWMA instead of pure average?
+            valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
+            # XXX: EWMA instead of valid_size or pure average?
             new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
+            #new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
     else:
         # Multiplicative Decrease
         descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
