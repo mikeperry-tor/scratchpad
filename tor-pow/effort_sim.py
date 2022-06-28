@@ -71,10 +71,6 @@ def recommend_effort_SSAIMD():
         new_effort = 2*descriptor_effort # max(max_trim,2*descriptor_effort)
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort:
-    #   1. Non-Congestion: Queue is full of non-pow junk
-    #      -> Increase to median of handled pow, no multiplier, no decrease
-    #   2. Congestion: Queue is has at least some waiting valid pow
-    #      -> Increase to median of handled pow multiplied by ratio of queue length
     elif avg_queue_size > 0:
         # "Additive Increase" phase: Increase effort in proportion to
         # average queue size in period.
@@ -86,14 +82,13 @@ def recommend_effort_SSAIMD():
         if len(queue) == 0 or numpy.amax(list(x.effort for x in queue)) < descriptor_effort:
             new_effort = numpy.median(list(x.effort for x in handled))
             # Never let junk lower our effort
-            new_effort = descriptor_effort #max(new_effort, descriptor_effort)
+            new_effort = descriptor_effort # max(new_effort, descriptor_effort)
         # Congestion: If at least some requests with valid desc-level pow were delayed,
         # increase by the ratio of those that were delayed
         else:
             new_effort = numpy.median(list(x.effort for x in handled))
-            new_effort = descriptor_effort #max(descriptor_effort, new_effort)
+            new_effort = descriptor_effort # max(descriptor_effort, new_effort)
             valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
-            # XXX: EWMA instead of valid_size or pure average?
             #new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
             #new_effort += (new_effort*float(ewma_queue_size))/QUEUE_CAPACITY
             new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
