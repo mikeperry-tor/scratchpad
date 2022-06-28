@@ -43,6 +43,9 @@ class Client:
 # TODO: Can we do Vegas-style equilibrium point on queue length targeting?
 
 def recommend_effort_SSAIMD():
+    # XXX: This can be attacked if the adversary spams 0-effort,
+    # to lock out clients by pumping the difficulty
+
     global descriptor_effort
     new_effort = 0
     if len(trimmed_list) > 0:
