@@ -14,12 +14,18 @@ HS_UPDATE_PERIOD=300
 MIN_EFFORT=1000
 QUEUE_CAPACITY=CLIENT_TIMEOUT*SVC_BOTTOM_CAPACITY
 
+SIM_LENGTH=20000
+ATTACK_START=1000
+ATTACK_END=16000
+ATTACK_CAPACITY=LARGE_BOTNET_MACHINES
+
 descriptor_effort=MIN_EFFORT
 handled=[]
 backlog=[]
 trimmed_count=0
 max_queue_size=0
 avg_queue_size=0
+ewma_queue_size=0
 trimmed_list=[]
 queue=[]
 
@@ -49,16 +55,11 @@ class Client:
 # TODO: Can we do Vegas-style equilibrium point on queue length targeting?
 
 def recommend_effort_SSAIMD():
-    # XXX: This can be attacked if the adversary spams 0-effort,
-    # to lock out clients by pumping the difficulty; We could ensure
-    # that our queue and trim-list only contain entries above the
-    # previous difficulty level.. But that locks out non-pow clients
-
     global descriptor_effort
     new_effort = 0
 
     # We are in "Slow start" if the queue is being trimmed, and there
-    # was a trimmed request of at least min-effort of *valid* pow
+    # was a trimmed request of at least desc-effort of *valid* pow
     if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= descriptor_effort:
         # "Slow Start" phase: Exponential increase difficulty
         max_trim = numpy.amax(trimmed_list)
@@ -86,8 +87,9 @@ def recommend_effort_SSAIMD():
             new_effort = max(descriptor_effort, new_effort)
             valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
             # XXX: EWMA instead of valid_size or pure average?
-            new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
-            #new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
+            #new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
+            #new_effort += (new_effort*float(ewma_queue_size))/QUEUE_CAPACITY
+            new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
     else:
         # Multiplicative Decrease
         descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
@@ -265,9 +267,9 @@ class AttStratPrecomputed(AttStratSustained):
             count = 0
         return count
 
-attack_strat = AttStratSustained(LARGE_BOTNET_MACHINES, 150, 7350)
+attack_strat = AttStratSustained(ATTACK_CAPACITY, ATTACK_START, ATTACK_END)
 
-for tick in range(9000):
+for tick in range(SIM_LENGTH):
     effort_sum = 0
     conn_count = 0
     # update descriptor
@@ -284,6 +286,7 @@ for tick in range(9000):
         trimmed_count = 0
         max_queue_size = 0
         avg_queue_size = 0
+        ewma_queue_size = 0
     # handle attacker
     for i in range(attack_strat.get_count(tick)):
         client = Client(tick, attack_strat.get_effort(tick), True)
@@ -334,6 +337,7 @@ for tick in range(9000):
             handled_legit_count = handled_legit_count + 1
             conn_time_sum = conn_time_sum + (tick - client.time)
     avg_queue_size += len(queue)
+    ewma_queue_size = N_EWMA(len(queue), ewma_queue_size, 100)
     if len(queue) > max_queue_size:
         max_queue_size = len(queue)
     time_to_conn = '?'

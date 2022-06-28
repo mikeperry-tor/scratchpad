@@ -1,4 +1,4 @@
-set object 1 rect from 150,graph 0 to 7350,graph 1 fc rgb 'gray'
+set object 1 rect from 1000,graph 0 to 16000,graph 1 fc rgb 'gray'
 set ytics nomirror
 set y2tics
 set xlabel 'time [s]'
