@@ -44,17 +44,31 @@ class Client:
 
 def recommend_effort_SSAIMD():
     # XXX: This can be attacked if the adversary spams 0-effort,
-    # to lock out clients by pumping the difficulty
+    # to lock out clients by pumping the difficulty; We could ensure
+    # that our queue and trim-list only contain entries above the
+    # previous difficulty level.. But that locks out non-pow clients
 
     global descriptor_effort
     new_effort = 0
-    if len(trimmed_list) > 0:
+
+    # We are in "Slow start" if the queue is being trimmed, and there
+    # was a trimmed request of at least min-effort of *valid* pow
+    if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= MIN_EFFORT:
         # "Slow Start" phase: Exponential increase difficulty
-        max_trim = max(numpy.amax(trimmed_list), descriptor_effort)
+        max_trim = numpy.amax(trimmed_list)
         new_effort = max_trim*2
+    # We are in "Additive Increase" if requests are building up in the queue.
+    # This phase has 3 cases of increasing severity wrt increasing effort:
+    #   1. Queue is full of non-pow junk
+    #      -> Increase to median of handled pow, no multiplier
+    #   2. Queue is a mix of valid pow and non-pow junk
+    #      -> Increase to ratio of valid pow length XXX: less sure about this
+    #   3. Queue is full of valid pow
+    #      -> Increase to median of handled pow multiplied by ratio of queue length
     elif avg_queue_size > 0:
         # "Addative Increase" phase: Increase effort in proportion to
         # average queue size in period.
+        # XXX: Implement cases as above
         # XXX: EWMA instead of pure average?
         new_effort = numpy.median(list(x.effort for x in handled))
         new_effort = max(descriptor_effort, new_effort)
