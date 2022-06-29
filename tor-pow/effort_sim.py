@@ -18,7 +18,7 @@ SIM_LENGTH=30000
 ATTACK_RANGES=[(1000,6000), (10000,16000), (20000,26000)]
 ATTACK_CAPACITY=LARGE_BOTNET_MACHINES
 
-descriptor_effort=MIN_EFFORT
+descriptor_effort=0
 handled=[]
 backlog=[]
 trimmed_count=0
@@ -51,7 +51,8 @@ class Client:
         next_attempt = self.effort / CLIENT_PERF
         self.next_time = self.next_time + CLIENT_TIMEOUT + next_attempt
 
-# TODO: Can we do Vegas-style equilibrium point on queue length targeting?
+# TODO: Try versions of v3AIMD that use median*length or mean*length,
+#       rather than sum(). This will be more resiliant to pow-bursts/breaks.
 
 def recommend_effort_v3AIMD():
     # Important points:
@@ -70,6 +71,7 @@ def recommend_effort_v3AIMD():
         new_effort += sum(x.effort for x in handled)
         new_effort += sum(x.effort for x in queue)
         new_effort /= len(handled)
+        new_effort = max(new_effort, MIN_EFFORT)
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort: congestion vs
     # no-congestion.
@@ -85,17 +87,16 @@ def recommend_effort_v3AIMD():
             new_effort += sum(x.effort for x in handled)
             new_effort += sum(x.effort for x in queue)
             new_effort /= len(handled)
+            new_effort = max(new_effort, MIN_EFFORT)
     else:
         # Multiplicative Decrease
-        descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
-        return descriptor_effort
+        new_effort = descriptor_effort*0.66
 
-    if descriptor_effort < new_effort:
-        descriptor_effort = new_effort
+    descriptor_effort = new_effort
 
-    # print 'Median handled: ', median_handled
-    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
-        descriptor_effort = MIN_EFFORT
+    if descriptor_effort < MIN_EFFORT:
+        descriptor_effort = 0
+
     return descriptor_effort
 
 def recommend_effort_SSAIMD():
@@ -111,6 +112,7 @@ def recommend_effort_SSAIMD():
     if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= descriptor_effort:
         # "Slow Start" phase: Exponential increase difficulty
         new_effort = 2*descriptor_effort
+        new_effort = max(new_effort, MIN_EFFORT)
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort:
     elif avg_queue_size > 0:
@@ -128,17 +130,16 @@ def recommend_effort_SSAIMD():
             valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
             #new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
             new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
+            new_effort = max(new_effort, MIN_EFFORT)
     else:
         # Multiplicative Decrease
-        descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
-        return descriptor_effort
+        new_effort = descriptor_effort*0.75
 
-    if descriptor_effort < new_effort:
-        descriptor_effort = new_effort
+    descriptor_effort = new_effort
 
-    # print 'Median handled: ', median_handled
-    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
-        descriptor_effort = MIN_EFFORT
+    if descriptor_effort < MIN_EFFORT:
+        descriptor_effort = 0
+
     return descriptor_effort
 
 def recommend_effort6():
