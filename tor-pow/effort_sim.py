@@ -53,6 +53,53 @@ class Client:
 
 # TODO: Can we do Vegas-style equilibrium point on queue length targeting?
 
+def recommend_effort_SSAIMDv3():
+    # Important points:
+    #   - Trusts the PoW function not to have a break/shortcut
+    #   - Requires potentially expensive queue inspections
+    #   - If mainloop top/bottom half prioritization is busted, this will fail
+    global descriptor_effort
+    new_effort = 0
+
+    # We are in "Slow start" if the queue is being trimmed, and there
+    # was a trimmed request of at least desc-effort of *valid* pow
+    if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= descriptor_effort:
+        new_effort = sum(trimmed_list)
+        new_effort += sum(x.effort for x in handled)
+        new_effort += sum(x.effort for x in queue)
+        new_effort /= len(handled)
+    # We are in "Additive Increase" if requests are building up in the queue.
+    # This phase has 2 cases of wrt increasing effort:
+    elif avg_queue_size > 0:
+        # "Additive Increase" phase: Increase effort in proportion to
+        # average queue size in period.
+        assert len(queue) <= QUEUE_CAPACITY
+        assert avg_queue_size <= QUEUE_CAPACITY
+
+        # No congestion: If the queue is currently empty, or full of junk-pow,
+        # that is not a congestion signal. Stay the course.
+        if len(queue) == 0 or numpy.amax(list(x.effort for x in queue)) < descriptor_effort:
+            new_effort = descriptor_effort # max(new_effort, descriptor_effort)
+        # Congestion: If at least some requests with valid desc-level pow were delayed,
+        # increase by the ratio of those that were delayed
+        else:
+            new_effort = sum(trimmed_list)
+            new_effort += sum(x.effort for x in handled)
+            new_effort += sum(x.effort for x in queue)
+            new_effort /= len(handled)
+    else:
+        # Multiplicative Decrease
+        descriptor_effort = max(descriptor_effort*0.75, MIN_EFFORT)
+        return descriptor_effort
+
+    if descriptor_effort < new_effort:
+        descriptor_effort = new_effort
+
+    # print 'Median handled: ', median_handled
+    if descriptor_effort > 0 and descriptor_effort < MIN_EFFORT:
+        descriptor_effort = MIN_EFFORT
+    return descriptor_effort
+
 def recommend_effort_SSAIMD():
     # Important points:
     #   - Uses desc effort, not pow values for multiplirs (in case of pow-break)
@@ -277,7 +324,7 @@ for tick in range(SIM_LENGTH):
     # update descriptor
     if tick % HS_UPDATE_PERIOD == 0:
         avg_queue_size /= HS_UPDATE_PERIOD
-        descriptor_effort=recommend_effort_SSAIMD()
+        descriptor_effort=recommend_effort_SSAIMDv3()
         # print '(t={}) suggested effort: {}'.format(tick, descriptor_effort)
         total = len(handled)
         legitimate = sum(1 for x in handled if not x.attacker)
