@@ -14,10 +14,9 @@ HS_UPDATE_PERIOD=300
 MIN_EFFORT=1000
 QUEUE_CAPACITY=CLIENT_TIMEOUT*SVC_BOTTOM_CAPACITY
 
-SIM_LENGTH=20000
-ATTACK_START=1000
-ATTACK_END=16000
-ATTACK_CAPACITY=SMALL_BOTNET_MACHINES
+SIM_LENGTH=30000
+ATTACK_RANGES=[(1000,6000), (10000,16000), (20000,26000)]
+ATTACK_CAPACITY=LARGE_BOTNET_MACHINES
 
 descriptor_effort=MIN_EFFORT
 handled=[]
@@ -230,10 +229,9 @@ def get_client_count(tick):
     return 20
 
 class AttStratSustained:
-    def __init__(self, machines, start, end):
+    def __init__(self, machines, attack_ranges):
         self.machines=machines
-        self.start=start
-        self.end=end
+        self.attack_ranges = attack_ranges
 
     def get_effort(self, tick):
         global descriptor_effort
@@ -241,12 +239,14 @@ class AttStratSustained:
 
     def get_count(self, tick):
         machines_now = 0
-        if tick >= self.start:
-            machines_now = self.machines
-        if tick > self.end:
-            machines_now = 0
+
+        for r in self.attack_ranges:
+          if tick >= r[0] and tick <= r[1]:
+              machines_now = self.machines
+
         if machines_now == 0:
             return 0
+
         return min(SVC_TOP_CAPACITY, int(machines_now * CLIENT_PERF / max(self.get_effort(tick), 1)))
 
 class AttStratPrecomputed(AttStratSustained):
@@ -269,7 +269,7 @@ class AttStratPrecomputed(AttStratSustained):
             count = 0
         return count
 
-attack_strat = AttStratSustained(ATTACK_CAPACITY, ATTACK_START, ATTACK_END)
+attack_strat = AttStratSustained(ATTACK_CAPACITY, ATTACK_RANGES)
 
 for tick in range(SIM_LENGTH):
     effort_sum = 0
