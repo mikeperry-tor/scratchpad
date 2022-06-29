@@ -101,8 +101,7 @@ def recommend_effort_v3AIMD():
 def recommend_effort_SSAIMD():
     # Important points:
     #   - Uses desc effort, not pow values for multiplirs (in case of pow-break)
-    #   - Sim also yields weird results when using queue effort values directly
-    #   - Requires potentially expensive queue inspections
+    #   - Slower to converge than v3AIMD, but avoids vuln to pow-break or burst-pow
     #   - If mainloop top/bottom half prioritization is busted, this will fail
     global descriptor_effort
     new_effort = 0
@@ -111,30 +110,23 @@ def recommend_effort_SSAIMD():
     # was a trimmed request of at least desc-effort of *valid* pow
     if len(trimmed_list) > 0 and numpy.amax(trimmed_list) >= descriptor_effort:
         # "Slow Start" phase: Exponential increase difficulty
-        max_trim = numpy.amax(trimmed_list)
-        new_effort = 2*descriptor_effort # max(max_trim,2*descriptor_effort)
+        new_effort = 2*descriptor_effort
     # We are in "Additive Increase" if requests are building up in the queue.
     # This phase has 2 cases of wrt increasing effort:
     elif avg_queue_size > 0:
         # "Additive Increase" phase: Increase effort in proportion to
         # average queue size in period.
-        assert len(queue) <= QUEUE_CAPACITY
-        assert avg_queue_size <= QUEUE_CAPACITY
-
         # No congestion: If the queue is currently empty, or full of junk-pow,
         # that is not a congestion signal. Stay the course.
         if len(queue) == 0 or numpy.amax(list(x.effort for x in queue)) < descriptor_effort:
-            new_effort = numpy.median(list(x.effort for x in handled))
             # Never let junk lower our effort
-            new_effort = descriptor_effort # max(new_effort, descriptor_effort)
+            new_effort = descriptor_effort
         # Congestion: If at least some requests with valid desc-level pow were delayed,
         # increase by the ratio of those that were delayed
         else:
-            new_effort = numpy.median(list(x.effort for x in handled))
-            new_effort = descriptor_effort # max(descriptor_effort, new_effort)
+            new_effort = descriptor_effort
             valid_size = len(list(filter(lambda x: x.effort >= descriptor_effort, queue)))
             #new_effort += (new_effort*float(avg_queue_size))/QUEUE_CAPACITY
-            #new_effort += (new_effort*float(ewma_queue_size))/QUEUE_CAPACITY
             new_effort += (new_effort*float(valid_size))/QUEUE_CAPACITY
     else:
         # Multiplicative Decrease
